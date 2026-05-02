@@ -156,7 +156,7 @@ export async function* generateContent(userInput: string): AsyncGenerator<Progre
 
   yield { kind: "status", message: "セッション開始 — エージェントが探索を始めます" };
 
-  const stream = await client.beta.sessions.stream(session.id);
+  const stream = await client.beta.sessions.events.stream(session.id);
 
   await client.beta.sessions.events.send(session.id, {
     events: [
