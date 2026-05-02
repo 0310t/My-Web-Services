@@ -10,7 +10,7 @@ interface HistoryItem {
 }
 
 interface ProgressLine {
-  id: number;
+  id: string;
   text: string;
 }
 
@@ -29,7 +29,6 @@ export default function Page() {
   const [progress, setProgress] = useState<ProgressLine[]>([]);
   const [output, setOutput] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const progressIdRef = useRef(0);
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,8 +50,8 @@ export default function Page() {
   }
 
   function pushProgress(text: string) {
-    progressIdRef.current += 1;
-    setProgress((prev) => [...prev, { id: progressIdRef.current, text }]);
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setProgress((prev) => [...prev, { id, text }]);
   }
 
   async function handleSubmit(e: React.FormEvent) {
