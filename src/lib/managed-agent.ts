@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
 
@@ -93,14 +93,29 @@ function listFilesRecursive(dir: string): string[] {
   return out;
 }
 
+function guessMime(filename: string): string {
+  if (/\.md$/i.test(filename)) return "text/markdown";
+  if (/\.txt$/i.test(filename)) return "text/plain";
+  if (/\.json$/i.test(filename)) return "application/json";
+  if (/\.csv$/i.test(filename)) return "text/csv";
+  if (/\.ya?ml$/i.test(filename)) return "text/yaml";
+  return "application/octet-stream";
+}
+
 async function getOrUploadKnowledgeResources(client: Anthropic) {
   if (cachedResources) return cachedResources;
   const files = listFilesRecursive(KNOWLEDGE_DIR);
   const resources: Array<{ type: "file"; file_id: string; mount_path: string }> = [];
   for (const filePath of files) {
     const relative = path.relative(KNOWLEDGE_DIR, filePath);
-    const stream = fs.createReadStream(filePath);
-    const uploaded = await client.beta.files.upload({ file: stream });
+    const filename = path.basename(filePath);
+    const file = await toFile(fs.createReadStream(filePath), filename, {
+      type: guessMime(filename),
+    });
+    const uploaded = await client.beta.files.upload(
+      { file },
+      { headers: { "anthropic-beta": "files-api-2025-04-14" } },
+    );
     resources.push({
       type: "file",
       file_id: uploaded.id,
