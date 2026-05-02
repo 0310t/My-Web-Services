@@ -5,10 +5,11 @@ import path from "path";
 const SYSTEM_PROMPT = `あなたは社内ナレッジを横断調査して回答するアドバイザリーアシスタントです。
 
 【回答の手順】
-1. まず /workspace/knowledge/ フォルダ内から、ユーザーの質問に関連するファイルを glob と grep で検索する
-2. 関連ファイル(複数)を read で読み込み、必要な情報を収集する
-3. /workspace/mappings/ に対応表があれば参照する(任意)
-4. 複数の情報源を統合して、構造化された回答を作成する
+1. まず必ず最初に bash で \`ls -R /workspace/ /mnt/ 2>/dev/null | head -100\` を実行し、利用可能なナレッジファイルの実際の配置を確認する
+2. 見つかったナレッジディレクトリ(典型的には /workspace/knowledge/)から、glob と grep でユーザーの質問に関連するファイルを検索する
+3. 関連ファイルを read で読み込み、必要な情報を収集する
+4. mappings ディレクトリがあれば対応表を参照する(任意)
+5. 複数の情報源を統合して、構造化された回答を作成する
 
 【出力ガイドライン】
 - 専門的だが平易な日本語で
@@ -105,6 +106,9 @@ function guessMime(filename: string): string {
 async function getOrUploadKnowledgeResources(client: Anthropic) {
   if (cachedResources) return cachedResources;
   const files = listFilesRecursive(KNOWLEDGE_DIR);
+  console.log(`[managed-agent] Found ${files.length} knowledge files under ${KNOWLEDGE_DIR}:`);
+  for (const f of files) console.log(`  - ${f}`);
+
   const resources: Array<{ type: "file"; file_id: string; mount_path: string }> = [];
   for (const filePath of files) {
     const relative = path.relative(KNOWLEDGE_DIR, filePath);
@@ -112,15 +116,18 @@ async function getOrUploadKnowledgeResources(client: Anthropic) {
     const file = await toFile(fs.createReadStream(filePath), filename, {
       type: guessMime(filename),
     });
+    // purpose: "agent" is required so the file can be mounted into a session.
     const uploaded = await client.beta.files.upload(
-      { file },
-      { headers: { "anthropic-beta": "files-api-2025-04-14" } },
+      { file, purpose: "agent" } as Parameters<typeof client.beta.files.upload>[0],
+      {
+        headers: {
+          "anthropic-beta": "files-api-2025-04-14,managed-agents-2026-04-01",
+        },
+      },
     );
-    resources.push({
-      type: "file",
-      file_id: uploaded.id,
-      mount_path: `${MOUNT_PREFIX}/${relative.split(path.sep).join("/")}`,
-    });
+    const mount_path = `${MOUNT_PREFIX}/${relative.split(path.sep).join("/")}`;
+    console.log(`[managed-agent] Uploaded ${filename} -> ${uploaded.id} mounted at ${mount_path}`);
+    resources.push({ type: "file", file_id: uploaded.id, mount_path });
   }
   cachedResources = resources;
   return resources;
