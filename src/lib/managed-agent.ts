@@ -2,14 +2,20 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
 
-const SYSTEM_PROMPT = `あなたは社内ナレッジを横断調査して回答するアドバイザリーアシスタントです。
+const SYSTEM_PROMPT = `あなたは社内ナレッジを起点に、必要に応じて Web リサーチも組み合わせて回答する調査アシスタントです。
 
 【回答の手順】
 1. まず必ず最初に bash で \`ls -R /workspace/ /mnt/ 2>/dev/null | head -100\` を実行し、利用可能なナレッジファイルの実際の配置を確認する
 2. 見つかったナレッジディレクトリ(典型的には /workspace/knowledge/)から、glob と grep でユーザーの質問に関連するファイルを検索する
 3. 関連ファイルを read で読み込み、必要な情報を収集する
 4. mappings ディレクトリがあれば対応表を参照する(任意)
-5. 複数の情報源を統合して、構造化された回答を作成する
+5. **社内ナレッジに該当が無い・情報が古い・補強が必要と判断した場合のみ** web_search / web_fetch を使う
+6. Web を使うときは:
+   - 社内固有名詞をクエリにそのまま入れない(汎用語に置き換える)
+   - 信頼できるソース(公式、報道、業界団体、教科書的サイト)を優先
+   - 引用は必ず URL 付き
+7. アップロードされたファイルが PDF/Excel/Word/PowerPoint の場合は、対応する Skill を活用して読み解く
+8. 複数の情報源を統合して、構造化された回答を作成する
 
 【出力ガイドライン】
 - 専門的だが平易な日本語で
@@ -25,9 +31,12 @@ const SYSTEM_PROMPT = `あなたは社内ナレッジを横断調査して回答
 <根拠と説明。箇条書き可>
 
 ## 参照したナレッジ
-- <ファイル名>: <そこから得た要点>
+- <社内ファイル名>: <そこから得た要点>
 
-知識ベースに該当情報がない場合は、その旨を正直に明記してから一般論を述べてください。`;
+## 外部情報(任意。Web を使った時のみ)
+- [<タイトル>](<URL>): <そこから得た要点>
+
+知識ベースに該当情報がない場合は、その旨を正直に明記してから外部情報や一般論を述べてください。社内情報と外部情報は必ず混ぜずに分けて記述してください。`;
 
 const KNOWLEDGE_DIR = path.join(process.cwd(), "data");
 const MOUNT_PREFIX = "/workspace";
@@ -56,13 +65,15 @@ async function getOrCreateAgent(client: Anthropic): Promise<string> {
       {
         type: "agent_toolset_20260401",
         default_config: { enabled: true },
-        configs: [
-          { name: "web_search", enabled: false },
-          { name: "web_fetch", enabled: false },
-        ],
       },
     ],
-  });
+    skills: [
+      { type: "anthropic", skill_id: "pdf" },
+      { type: "anthropic", skill_id: "docx" },
+      { type: "anthropic", skill_id: "xlsx" },
+      { type: "anthropic", skill_id: "pptx" },
+    ],
+  } as Parameters<typeof client.beta.agents.create>[0]);
   cachedAgentId = agent.id;
   console.log(`[managed-agent] Created agent ${agent.id} — set AGENT_ID=${agent.id} in .env to reuse`);
   return cachedAgentId;
